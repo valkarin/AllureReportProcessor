@@ -1,7 +1,12 @@
 package dev.allureprocessor;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.BiPredicate;
 
 /** Small helpers for editing Allure result JSON without losing unknown fields. */
 public final class AllureJson {
@@ -27,14 +32,47 @@ public final class AllureJson {
         result.withArray("labels").addObject().put("name", name).put("value", value);
     }
 
-    /** Replaces every label with this name by a single one with the given value. */
-    public static void setLabel(ObjectNode result, String name, String value) {
-        var labels = result.withArray("labels");
-        for (int i = labels.size() - 1; i >= 0; i--) {
-            if (name.equals(labels.get(i).path("name").asText())) {
-                labels.remove(i);
+    /** All values of a label, in file order. Empty if the label isn't present. */
+    public static List<String> labels(ObjectNode result, String name) {
+        List<String> values = new ArrayList<>();
+        for (JsonNode l : result.path("labels")) {
+            if (name.equals(l.path("name").asText())) {
+                values.add(l.path("value").asText(""));
             }
         }
+        return values;
+    }
+
+    /** Removes every label with this name. Returns how many were removed. */
+    public static int removeLabel(ObjectNode result, String name) {
+        return removeLabelsIf(result, (n, v) -> name.equals(n));
+    }
+
+    /** Removes labels with this exact name and value (e.g. one specific tag). Returns how many were removed. */
+    public static int removeLabel(ObjectNode result, String name, String value) {
+        return removeLabelsIf(result, (n, v) -> name.equals(n) && value.equals(v));
+    }
+
+    /** Removes every label matching the predicate (label name, label value). Returns how many were removed. */
+    public static int removeLabelsIf(ObjectNode result, BiPredicate<String, String> predicate) {
+        JsonNode labels = result.get("labels");
+        if (!(labels instanceof ArrayNode array)) {
+            return 0;
+        }
+        int removed = 0;
+        for (int i = array.size() - 1; i >= 0; i--) {
+            JsonNode l = array.get(i);
+            if (predicate.test(l.path("name").asText(""), l.path("value").asText(""))) {
+                array.remove(i);
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    /** Replaces every label with this name by a single one with the given value. */
+    public static void setLabel(ObjectNode result, String name, String value) {
+        removeLabel(result, name);
         addLabel(result, name, value);
     }
 

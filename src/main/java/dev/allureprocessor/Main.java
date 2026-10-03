@@ -16,9 +16,8 @@ import java.util.Map;
  * </pre>
  * Output layout:
  * <pre>
- * out/results/failed   out/report/failed   (failed + broken)
- * out/results/passed   out/report/passed
- * out/results/other    out/report/other    (skipped / unknown, only generated if non-empty)
+ * out/results/passed       out/report/passed
+ * out/results/not-passed   out/report/not-passed   (failed, broken, skipped, unknown, ...)
  * </pre>
  */
 public final class Main {
@@ -28,7 +27,7 @@ public final class Main {
 
         // Register your modifiers here. They run in order on every result before it is written.
         List<ResultModifier> modifiers = new ArrayList<>();
-        // modifiers.add(new dev.allureprocessor.modifiers.AddLabelModifier(Bucket.FAILED, "tag", "needs-triage"));
+        // modifiers.add(new dev.allureprocessor.modifiers.AddLabelModifier(Bucket.NOT_PASSED, "tag", "needs-triage"));
 
         int exit = run(options, modifiers);
         System.exit(exit);
@@ -61,12 +60,11 @@ public final class Main {
             writer.write(content, context.newFiles(), folder, resultsDir, reportDir)
                     .forEach(w -> System.err.println("WARN [" + bucket.folderName() + "] " + w));
 
-            System.out.printf("%-6s %4d results, %3d containers, %3d attachments -> %s%n",
+            System.out.printf("%-10s %4d results, %3d containers, %3d attachments -> %s%n",
                     bucket.folderName(), content.results().size(), content.containers().size(),
                     content.attachmentSources().size(), resultsDir);
 
-            boolean generate = !options.skipGenerate && (bucket != Bucket.OTHER || !content.isEmpty());
-            if (generate) {
+            if (!options.skipGenerate) {
                 runner.generate(resultsDir, reportDir);
             }
         }

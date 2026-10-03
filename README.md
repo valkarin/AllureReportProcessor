@@ -4,7 +4,7 @@ Pre-processes an `allure-results` folder before the Allure CLI renders it:
 
 1. Reads every `*-result.json` and `*-container.json` as raw JSON (unknown fields are preserved).
 2. Runs your **modifiers** on each result to add or change data Allure will render.
-3. Splits results into **failed** (failed + broken), **passed**, and **other** (skipped / unknown).
+3. Splits results into **passed** and **not-passed** (failed, broken, skipped, unknown, or anything else).
 4. Writes each bucket to its own results folder with the containers and attachments it needs.
 5. Runs `allure generate --single-file` on each bucket.
 
@@ -38,9 +38,8 @@ Options:
 Output:
 
 ```
-<out>/results/failed   <out>/report/failed/index.html
-<out>/results/passed   <out>/report/passed/index.html
-<out>/results/other    <out>/report/other/index.html   (only generated when non-empty)
+<out>/results/passed       <out>/report/passed/index.html
+<out>/results/not-passed   <out>/report/not-passed/index.html
 ```
 
 ## How the split works
@@ -58,7 +57,7 @@ Implement `ResultModifier` and register it in `Main.main`:
 
 ```java
 modifiers.add((result, ctx) -> {
-    if (ctx.bucket() == Bucket.FAILED) {
+    if (ctx.bucket() == Bucket.NOT_PASSED) {
         AllureJson.addLabel(result, "tag", "needs-triage");
         AllureJson.addLink(result, "Runbook", "https://wiki/runbook", "link");
         AllureJson.appendDescriptionHtml(result, "<b>Owner:</b> payments team");
@@ -71,7 +70,16 @@ modifiers.add((result, ctx) -> {
 
 Fields Allure renders that are useful to change: `labels` (tags, feature, story, epic, severity, owner, `parentSuite` / `suite` / `subSuite` to regroup the Suites tree), `links`, `parameters`, `description` / `descriptionHtml`, `attachments`, and `statusDetails` (`message`, `trace`).
 
-`AddLabelModifier` in `dev.allureprocessor.modifiers` is a ready-made example.
+Label helpers: `label`, `labels`, `addLabel`, `setLabel`, `removeLabel(name)`, `removeLabel(name, value)`, `removeLabelsIf(predicate)`.
+
+Ready-made modifiers in `dev.allureprocessor.modifiers`:
+
+- `AddLabelModifier`: adds a label to every result in one bucket.
+- `LabelToLinkModifier`: if a label is present, removes it and adds a link per value, e.g.
+  `new LabelToLinkModifier("jira", "https://jira.example.com/browse/{value}", "issue")`
+  turns `jira=PAY-123` into an issue link named PAY-123.
+
+Modifiers run in the order they are registered, so a later modifier sees the changes of an earlier one.
 
 ## Tests
 

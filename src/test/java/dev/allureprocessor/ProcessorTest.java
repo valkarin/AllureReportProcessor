@@ -66,16 +66,16 @@ class ProcessorTest {
     void splitsByLatestAttemptAndKeepsRetriesTogether() throws IOException {
         Map<Bucket, BucketContent> buckets = Splitter.split(ResultsFolder.load(results, mapper));
 
-        assertEquals(Set.of("r2", "r5", "r5b", "r6"), buckets.get(Bucket.FAILED).results().keySet());
+        assertEquals(Set.of("r2", "r4", "r5", "r5b", "r6"), buckets.get(Bucket.NOT_PASSED).results().keySet());
         assertEquals(Set.of("r1", "r3", "r3b"), buckets.get(Bucket.PASSED).results().keySet());
-        assertEquals(Set.of("r4"), buckets.get(Bucket.OTHER).results().keySet());
+        assertEquals(2, buckets.size());
     }
 
     @Test
     void includesContainersTransitivelyAndTrimsSharedChildren() throws IOException {
         Map<Bucket, BucketContent> buckets = Splitter.split(ResultsFolder.load(results, mapper));
 
-        BucketContent failed = buckets.get(Bucket.FAILED);
+        BucketContent failed = buckets.get(Bucket.NOT_PASSED);
         assertEquals(Set.of("c1", "c2", "c3"), failed.containers().keySet());
         assertEquals(List.of("r2"), children(failed.containers().get("c2")));
 
@@ -89,7 +89,7 @@ class ProcessorTest {
         Map<Bucket, BucketContent> buckets = Splitter.split(ResultsFolder.load(results, mapper));
 
         assertEquals(Set.of("a1-attachment.png", "a2-attachment.txt", "a3-attachment.txt"),
-                buckets.get(Bucket.FAILED).attachmentSources());
+                buckets.get(Bucket.NOT_PASSED).attachmentSources());
         assertTrue(buckets.get(Bucket.PASSED).attachmentSources().isEmpty());
     }
 
@@ -109,15 +109,15 @@ class ProcessorTest {
         options.skipGenerate = true;
 
         ResultModifier addReport = (result, ctx) -> {
-            if (ctx.bucket() == Bucket.FAILED) {
+            if (ctx.bucket() == Bucket.NOT_PASSED) {
                 String source = ctx.addAttachmentFile("triage notes", "txt");
                 AllureJson.addAttachment(result, "Triage", "text/plain", source);
                 AllureJson.appendDescriptionHtml(result, "<b>Owner:</b> payments");
             }
         };
-        Main.run(options, List.of(new AddLabelModifier(Bucket.FAILED, "tag", "needs-triage"), addReport));
+        Main.run(options, List.of(new AddLabelModifier(Bucket.NOT_PASSED, "tag", "needs-triage"), addReport));
 
-        Path failed = out.resolve("results/failed");
+        Path failed = out.resolve("results/not-passed");
         Set<String> files = list(failed);
         assertTrue(files.containsAll(Set.of("r2-result.json", "c1-container.json", "c3-container.json",
                 "a1-attachment.png", "a2-attachment.txt", "a3-attachment.txt", "categories.json")));
@@ -151,7 +151,7 @@ class ProcessorTest {
         options.out = tmp.resolve("run2");
         Main.run(options, List.of());
 
-        for (String bucket : List.of("failed", "passed", "other")) {
+        for (String bucket : List.of("passed", "not-passed")) {
             Path a = tmp.resolve("run1/results").resolve(bucket);
             Path b = tmp.resolve("run2/results").resolve(bucket);
             assertEquals(list(a), list(b));
@@ -159,6 +159,38 @@ class ProcessorTest {
                 assertEquals(Files.readString(a.resolve(f)), Files.readString(b.resolve(f)), f);
             }
         }
+    }
+
+    @Test
+    void labelToLinkReplacesLabelWithLinks() throws IOException {
+        ObjectNode r = (ObjectNode) mapper.readTree("{\"labels\":["
+                + "{\"name\":\"jira\",\"value\":\"PAY-1\"},"
+                + "{\"name\":\"feature\",\"value\":\"Login\"},"
+                + "{\"name\":\"jira\",\"value\":\"PAY-2\"}],"
+                + "\"links\":[{\"name\":\"existing\",\"url\":\"https://x\",\"type\":\"link\"}]}");
+
+        new dev.allureprocessor.modifiers.LabelToLinkModifier("jira", "https://jira.example.com/browse/{value}", "issue")
+                .modify(r, new ModifierContext(Bucket.NOT_PASSED, null));
+
+        assertTrue(AllureJson.labels(r, "jira").isEmpty());
+        assertEquals(List.of("Login"), AllureJson.labels(r, "feature"));
+        assertEquals(3, r.path("links").size());
+        assertEquals("PAY-2", r.path("links").get(2).path("name").asText());
+        assertEquals("https://jira.example.com/browse/PAY-2", r.path("links").get(2).path("url").asText());
+        assertEquals("issue", r.path("links").get(2).path("type").asText());
+
+        ObjectNode untouched = (ObjectNode) mapper.readTree("{\"labels\":[{\"name\":\"feature\",\"value\":\"Login\"}]}");
+        new dev.allureprocessor.modifiers.LabelToLinkModifier("jira", "https://j/{value}", "issue")
+                .modify(untouched, new ModifierContext(Bucket.PASSED, null));
+        assertTrue(untouched.path("links").isMissingNode());
+    }
+
+    @Test
+    void removeLabelByNameAndValueOnlyRemovesThatOne() throws IOException {
+        ObjectNode r = (ObjectNode) mapper.readTree("{\"labels\":["
+                + "{\"name\":\"tag\",\"value\":\"smoke\"},{\"name\":\"tag\",\"value\":\"bug:PAY-9\"}]}");
+        assertEquals(1, AllureJson.removeLabel(r, "tag", "bug:PAY-9"));
+        assertEquals(List.of("smoke"), AllureJson.labels(r, "tag"));
     }
 
     private void result(String uuid, String historyId, String status, long stop, String extra) throws IOException {

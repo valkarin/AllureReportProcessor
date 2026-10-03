@@ -2,10 +2,10 @@ package dev.allureprocessor;
 
 /** Which output report a test ends up in, decided by the status of its latest attempt. */
 public enum Bucket {
-    FAILED("failed"),
+    /** Latest attempt passed. */
     PASSED("passed"),
-    /** skipped, unknown, or missing status. */
-    OTHER("other");
+    /** Everything else: failed, broken, skipped, unknown, or missing status. */
+    NOT_PASSED("not-passed");
 
     private final String folderName;
 
@@ -18,17 +18,6 @@ public enum Bucket {
     }
 
     public static Bucket ofStatus(String status) {
-        if (status == null) {
-            return OTHER;
-        }
-        switch (status) {
-            case "failed":
-            case "broken":
-                return FAILED;
-            case "passed":
-                return PASSED;
-            default:
-                return OTHER;
-        }
+        return "passed".equals(status) ? PASSED : NOT_PASSED;
     }
 }
