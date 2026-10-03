@@ -1,0 +1,187 @@
+package dev.allureprocessor;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import dev.allureprocessor.modifiers.AddLabelModifier;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ProcessorTest {
+
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    @TempDir
+    Path tmp;
+    Path results;
+
+    @BeforeEach
+    void createResults() throws IOException {
+        results = Files.createDirectories(tmp.resolve("allure-results"));
+
+        result("r1", "h1", "passed", 100, "");
+        result("r2", "h2", "failed", 200,
+                ",\"attachments\":[{\"name\":\"shot\",\"source\":\"a1-attachment.png\",\"type\":\"image/png\"}]"
+                        + ",\"steps\":[{\"name\":\"When I log in\",\"status\":\"failed\",\"steps\":[{\"name\":\"nested\","
+                        + "\"attachments\":[{\"name\":\"log\",\"source\":\"a2-attachment.txt\",\"type\":\"text/plain\"}]}]}]");
+        // h3: broken first, passed on retry -> passed bucket, both attempts kept together
+        result("r3", "h3", "broken", 300, "");
+        result("r3b", "h3", "passed", 400, "");
+        // h5: passed first, failed on retry -> failed bucket
+        result("r5", "h5", "passed", 300, "");
+        result("r5b", "h5", "failed", 500, "");
+        result("r4", "h4", "skipped", 100, "");
+        // field unknown to any Allure model version must survive the round trip
+        result("r6", "h6", "broken", 100, ",\"someFutureField\":{\"x\":1}");
+
+        write("c1-container.json", "{\"uuid\":\"c1\",\"children\":[\"r2\"],\"befores\":[{\"name\":\"Before hook\","
+                + "\"attachments\":[{\"name\":\"setup\",\"source\":\"a3-attachment.txt\",\"type\":\"text/plain\"}]}]}");
+        write("c2-container.json", "{\"uuid\":\"c2\",\"children\":[\"r1\",\"r2\"]}");
+        // nested: c3 only references c1, so it belongs wherever c1 belongs
+        write("c3-container.json", "{\"uuid\":\"c3\",\"children\":[\"c1\"]}");
+
+        write("a1-attachment.png", "png");
+        write("a2-attachment.txt", "log");
+        write("a3-attachment.txt", "setup");
+        write("unused-attachment.txt", "nobody points at me");
+        write("categories.json", "[]");
+        write("broken-result.json", "{ not json");
+    }
+
+    @Test
+    void splitsByLatestAttemptAndKeepsRetriesTogether() throws IOException {
+        Map<Bucket, BucketContent> buckets = Splitter.split(ResultsFolder.load(results, mapper));
+
+        assertEquals(Set.of("r2", "r5", "r5b", "r6"), buckets.get(Bucket.FAILED).results().keySet());
+        assertEquals(Set.of("r1", "r3", "r3b"), buckets.get(Bucket.PASSED).results().keySet());
+        assertEquals(Set.of("r4"), buckets.get(Bucket.OTHER).results().keySet());
+    }
+
+    @Test
+    void includesContainersTransitivelyAndTrimsSharedChildren() throws IOException {
+        Map<Bucket, BucketContent> buckets = Splitter.split(ResultsFolder.load(results, mapper));
+
+        BucketContent failed = buckets.get(Bucket.FAILED);
+        assertEquals(Set.of("c1", "c2", "c3"), failed.containers().keySet());
+        assertEquals(List.of("r2"), children(failed.containers().get("c2")));
+
+        BucketContent passed = buckets.get(Bucket.PASSED);
+        assertEquals(Set.of("c2"), passed.containers().keySet());
+        assertEquals(List.of("r1"), children(passed.containers().get("c2")));
+    }
+
+    @Test
+    void collectsAttachmentsFromNestedStepsAndFixtures() throws IOException {
+        Map<Bucket, BucketContent> buckets = Splitter.split(ResultsFolder.load(results, mapper));
+
+        assertEquals(Set.of("a1-attachment.png", "a2-attachment.txt", "a3-attachment.txt"),
+                buckets.get(Bucket.FAILED).attachmentSources());
+        assertTrue(buckets.get(Bucket.PASSED).attachmentSources().isEmpty());
+    }
+
+    @Test
+    void skipsMalformedFilesWithWarning() throws IOException {
+        ResultsFolder folder = ResultsFolder.load(results, mapper);
+        assertEquals(8, folder.results().size());
+        assertEquals(1, folder.warnings().size());
+    }
+
+    @Test
+    void endToEndWritesFoldersAppliesModifiersAndLeavesSourceUntouched() throws Exception {
+        Path out = tmp.resolve("split");
+        Main.Options options = new Main.Options();
+        options.results = results;
+        options.out = out;
+        options.skipGenerate = true;
+
+        ResultModifier addReport = (result, ctx) -> {
+            if (ctx.bucket() == Bucket.FAILED) {
+                String source = ctx.addAttachmentFile("triage notes", "txt");
+                AllureJson.addAttachment(result, "Triage", "text/plain", source);
+                AllureJson.appendDescriptionHtml(result, "<b>Owner:</b> payments");
+            }
+        };
+        Main.run(options, List.of(new AddLabelModifier(Bucket.FAILED, "tag", "needs-triage"), addReport));
+
+        Path failed = out.resolve("results/failed");
+        Set<String> files = list(failed);
+        assertTrue(files.containsAll(Set.of("r2-result.json", "c1-container.json", "c3-container.json",
+                "a1-attachment.png", "a2-attachment.txt", "a3-attachment.txt", "categories.json")));
+        assertFalse(files.contains("unused-attachment.txt"));
+        assertFalse(files.contains("r1-result.json"));
+
+        ObjectNode r2 = (ObjectNode) mapper.readTree(failed.resolve("r2-result.json").toFile());
+        assertEquals("needs-triage", AllureJson.label(r2, "tag"));
+        assertEquals("<b>Owner:</b> payments", r2.path("descriptionHtml").asText());
+        String triageSource = r2.path("attachments").get(1).path("source").asText();
+        assertEquals("triage notes", Files.readString(failed.resolve(triageSource)));
+
+        ObjectNode r6 = (ObjectNode) mapper.readTree(failed.resolve("r6-result.json").toFile());
+        assertEquals(1, r6.path("someFutureField").path("x").asInt());
+
+        ObjectNode r1 = (ObjectNode) mapper.readTree(out.resolve("results/passed/r1-result.json").toFile());
+        assertEquals(null, AllureJson.label(r1, "tag"));
+
+        ObjectNode original = (ObjectNode) mapper.readTree(results.resolve("r2-result.json").toFile());
+        assertEquals(null, AllureJson.label(original, "tag"));
+    }
+
+    @Test
+    void outputIsDeterministic() throws Exception {
+        Main.Options options = new Main.Options();
+        options.results = results;
+        options.skipGenerate = true;
+
+        options.out = tmp.resolve("run1");
+        Main.run(options, List.of());
+        options.out = tmp.resolve("run2");
+        Main.run(options, List.of());
+
+        for (String bucket : List.of("failed", "passed", "other")) {
+            Path a = tmp.resolve("run1/results").resolve(bucket);
+            Path b = tmp.resolve("run2/results").resolve(bucket);
+            assertEquals(list(a), list(b));
+            for (String f : list(a)) {
+                assertEquals(Files.readString(a.resolve(f)), Files.readString(b.resolve(f)), f);
+            }
+        }
+    }
+
+    private void result(String uuid, String historyId, String status, long stop, String extra) throws IOException {
+        write(uuid + "-result.json", "{\"uuid\":\"" + uuid + "\",\"historyId\":\"" + historyId + "\",\"name\":\"" + uuid
+                + "\",\"status\":\"" + status + "\",\"start\":" + (stop - 10) + ",\"stop\":" + stop
+                + ",\"labels\":[{\"name\":\"feature\",\"value\":\"Login\"}]" + extra + "}");
+    }
+
+    private void write(String name, String content) throws IOException {
+        Files.writeString(results.resolve(name), content);
+    }
+
+    private static List<String> children(JsonNode container) {
+        return Stream.of(container.path("children")).flatMap(n -> {
+            List<String> l = new java.util.ArrayList<>();
+            n.forEach(c -> l.add(c.asText()));
+            return l.stream();
+        }).toList();
+    }
+
+    private static Set<String> list(Path dir) throws IOException {
+        try (Stream<Path> s = Files.list(dir)) {
+            return s.map(p -> p.getFileName().toString()).collect(Collectors.toCollection(java.util.TreeSet::new));
+        }
+    }
+}
