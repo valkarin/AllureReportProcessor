@@ -193,6 +193,37 @@ class ProcessorTest {
         assertEquals(List.of("smoke"), AllureJson.labels(r, "tag"));
     }
 
+    @Test
+    void dedupeLinksKeepsFirstOfSameNameAndUrl() throws IOException {
+        ObjectNode r = (ObjectNode) mapper.readTree("{\"links\":["
+                + "{\"name\":\"PAY-1\",\"url\":\"https://j/PAY-1\",\"type\":\"issue\"},"
+                + "{\"name\":\"PAY-1\",\"url\":\"https://j/PAY-1\",\"type\":\"link\"},"
+                + "{\"name\":\"PAY-1\",\"url\":\"https://other/PAY-1\",\"type\":\"issue\"},"
+                + "{\"name\":\"Runbook\",\"url\":\"https://j/PAY-1\",\"type\":\"link\"},"
+                + "{\"name\":\"PAY-1\",\"url\":\"https://j/PAY-1\",\"type\":\"issue\"}]}");
+
+        new dev.allureprocessor.modifiers.DedupeLinksModifier().modify(r, new ModifierContext(Bucket.PASSED, null));
+
+        assertEquals(3, r.path("links").size());
+        assertEquals("issue", r.path("links").get(0).path("type").asText());
+        assertEquals("https://other/PAY-1", r.path("links").get(1).path("url").asText());
+        assertEquals("Runbook", r.path("links").get(2).path("name").asText());
+
+        ObjectNode noLinks = (ObjectNode) mapper.readTree("{}");
+        assertEquals(0, AllureJson.dedupeLinks(noLinks));
+    }
+
+    @Test
+    void dedupeCatchesDuplicatesCreatedByEarlierModifiers() throws IOException {
+        ObjectNode r = (ObjectNode) mapper.readTree("{\"labels\":[{\"name\":\"jira\",\"value\":\"PAY-7\"}],"
+                + "\"links\":[{\"name\":\"PAY-7\",\"url\":\"https://j/PAY-7\",\"type\":\"issue\"}]}");
+        ModifierContext ctx = new ModifierContext(Bucket.NOT_PASSED, null);
+        new dev.allureprocessor.modifiers.LabelToLinkModifier("jira", "https://j/{value}", "issue").modify(r, ctx);
+        assertEquals(2, r.path("links").size());
+        new dev.allureprocessor.modifiers.DedupeLinksModifier().modify(r, ctx);
+        assertEquals(1, r.path("links").size());
+    }
+
     private void result(String uuid, String historyId, String status, long stop, String extra) throws IOException {
         write(uuid + "-result.json", "{\"uuid\":\"" + uuid + "\",\"historyId\":\"" + historyId + "\",\"name\":\"" + uuid
                 + "\",\"status\":\"" + status + "\",\"start\":" + (stop - 10) + ",\"stop\":" + stop

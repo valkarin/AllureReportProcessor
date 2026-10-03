@@ -5,7 +5,10 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.function.BiPredicate;
 
 /** Small helpers for editing Allure result JSON without losing unknown fields. */
@@ -79,6 +82,28 @@ public final class AllureJson {
     /** type is usually "issue", "tms", or "link". */
     public static void addLink(ObjectNode result, String name, String url, String type) {
         result.withArray("links").addObject().put("name", name).put("url", url).put("type", type);
+    }
+
+    /**
+     * Removes links that have the same name and url as an earlier link, keeping the first one.
+     * The type is ignored, so the first link's type wins. Returns how many were removed.
+     */
+    public static int dedupeLinks(ObjectNode result) {
+        JsonNode links = result.get("links");
+        if (!(links instanceof ArrayNode array)) {
+            return 0;
+        }
+        Set<List<String>> seen = new HashSet<>();
+        int removed = 0;
+        Iterator<JsonNode> it = array.elements();
+        while (it.hasNext()) {
+            JsonNode l = it.next();
+            if (!seen.add(List.of(l.path("name").asText(""), l.path("url").asText("")))) {
+                it.remove();
+                removed++;
+            }
+        }
+        return removed;
     }
 
     public static void addParameter(ObjectNode result, String name, String value) {

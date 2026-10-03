@@ -70,6 +70,8 @@ modifiers.add((result, ctx) -> {
 
 Fields Allure renders that are useful to change: `labels` (tags, feature, story, epic, severity, owner, `parentSuite` / `suite` / `subSuite` to regroup the Suites tree), `links`, `parameters`, `description` / `descriptionHtml`, `attachments`, and `statusDetails` (`message`, `trace`).
 
+Link helpers: `addLink`, `dedupeLinks`.
+
 Label helpers: `label`, `labels`, `addLabel`, `setLabel`, `removeLabel(name)`, `removeLabel(name, value)`, `removeLabelsIf(predicate)`.
 
 Ready-made modifiers in `dev.allureprocessor.modifiers`:
@@ -78,6 +80,7 @@ Ready-made modifiers in `dev.allureprocessor.modifiers`:
 - `LabelToLinkModifier`: if a label is present, removes it and adds a link per value, e.g.
   `new LabelToLinkModifier("jira", "https://jira.example.com/browse/{value}", "issue")`
   turns `jira=PAY-123` into an issue link named PAY-123.
+- `DedupeLinksModifier`: removes links with the same name and url as an earlier one, keeping the first (its type wins). Registered by default in `Main`, as the last modifier, so it also catches duplicates created by earlier modifiers. Also available as `AllureJson.dedupeLinks(result)`.
 
 Modifiers run in the order they are registered, so a later modifier sees the changes of an earlier one.
 
@@ -87,4 +90,4 @@ Modifiers run in the order they are registered, so a later modifier sees the cha
 mvn test
 ```
 
-Covers retry grouping, nested and shared containers, attachment discovery in nested steps and fixtures, malformed files, preservation of unknown fields, modifiers, and deterministic output.
+Covers retry grouping, link deduplication, nested and shared containers, attachment discovery in nested steps and fixtures, malformed files, preservation of unknown fields, modifiers, and deterministic output.

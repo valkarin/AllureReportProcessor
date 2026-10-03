@@ -29,6 +29,9 @@ public final class Main {
         List<ResultModifier> modifiers = new ArrayList<>();
         // modifiers.add(new dev.allureprocessor.modifiers.AddLabelModifier(Bucket.NOT_PASSED, "tag", "needs-triage"));
 
+        // Keep this last so it also removes duplicate links created by the modifiers above.
+        modifiers.add(new dev.allureprocessor.modifiers.DedupeLinksModifier());
+
         int exit = run(options, modifiers);
         System.exit(exit);
     }
