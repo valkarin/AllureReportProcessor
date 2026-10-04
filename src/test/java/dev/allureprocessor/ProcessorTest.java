@@ -7,9 +7,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -19,6 +22,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class ProcessorTest {
 
@@ -261,6 +265,21 @@ class ProcessorTest {
         assertEquals(2, r.path("links").size());
         new dev.allureprocessor.modifiers.DedupeLinksModifier().modify(r, ctx);
         assertEquals(1, r.path("links").size());
+    }
+
+    @Test
+    void makesNonExecutableAllureBinaryExecutable() throws IOException {
+        assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
+        Path bin = Files.createDirectories(tmp.resolve("bin"));
+        Path allure = Files.writeString(bin.resolve("allure"), "#!/bin/sh\n");
+        Files.setPosixFilePermissions(allure, PosixFilePermissions.fromString("rw-r-----"));
+
+        assertEquals(allure, AllureRunner.locate("allure", tmp.resolve("missing") + File.pathSeparator + bin));
+        assertEquals(allure, AllureRunner.locate(allure.toString(), null));
+        assertEquals(null, AllureRunner.locate("allure", tmp.resolve("missing").toString()));
+
+        AllureRunner.ensureExecutable(allure);
+        assertEquals("rwxr-x---", PosixFilePermissions.toString(Files.getPosixFilePermissions(allure)));
     }
 
     private void result(String uuid, String historyId, String status, long stop, String extra) throws IOException {
