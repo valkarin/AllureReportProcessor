@@ -3,7 +3,6 @@ package dev.allureprocessor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import dev.allureprocessor.modifiers.AddLabelModifier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -115,7 +114,12 @@ class ProcessorTest {
                 AllureJson.appendDescriptionHtml(result, "<b>Owner:</b> payments");
             }
         };
-        Main.run(options, List.of(new AddLabelModifier(Bucket.NOT_PASSED, "tag", "needs-triage"), addReport));
+        ResultModifier addTag = (result, ctx) -> {
+            if (ctx.bucket() == Bucket.NOT_PASSED) {
+                AllureJson.addLabel(result, "tag", "needs-triage");
+            }
+        };
+        Main.run(options, List.of(addTag, addReport));
 
         Path failed = out.resolve("results/not-passed");
         Set<String> files = list(failed);

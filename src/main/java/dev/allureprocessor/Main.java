@@ -27,7 +27,7 @@ public final class Main {
 
         // Register your modifiers here. They run in order on every result before it is written.
         List<ResultModifier> modifiers = new ArrayList<>();
-        // modifiers.add(new dev.allureprocessor.modifiers.AddLabelModifier(Bucket.NOT_PASSED, "tag", "needs-triage"));
+        // modifiers.add(new dev.allureprocessor.modifiers.LabelToLinkModifier("jira", "https://jira.example.com/browse/{value}", "issue"));
 
         // Keep this last so it also removes duplicate links created by the modifiers above.
         modifiers.add(new dev.allureprocessor.modifiers.DedupeLinksModifier());

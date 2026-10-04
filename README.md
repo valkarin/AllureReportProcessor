@@ -76,7 +76,6 @@ Label helpers: `label`, `labels`, `addLabel`, `setLabel`, `removeLabel(name)`, `
 
 Ready-made modifiers in `dev.allureprocessor.modifiers`:
 
-- `AddLabelModifier`: adds a label to every result in one bucket.
 - `LabelToLinkModifier`: if a label is present, removes it and adds a link per value, e.g.
   `new LabelToLinkModifier("jira", "https://jira.example.com/browse/{value}", "issue")`
   turns `jira=PAY-123` into an issue link named PAY-123.
