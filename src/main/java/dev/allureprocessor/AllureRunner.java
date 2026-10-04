@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /** Runs the allure CLI (Allure 2) to turn a results folder into a report. */
@@ -17,17 +18,22 @@ public final class AllureRunner {
 
     private final String allureCommand;
     private final boolean singleFile;
+    private final Map<String, String> options;
     private boolean executableChecked;
 
     /**
      * @param allureCommand "allure" if it is on PATH, or a full path to the allure / allure.bat binary
+     * @param options       extra {@code allure generate} options, flag to value (e.g. {@code --lang} to {@code en});
+     *                      entries with a null or blank value are not passed
      */
-    public AllureRunner(String allureCommand, boolean singleFile) {
+    public AllureRunner(String allureCommand, boolean singleFile, Map<String, String> options) {
         this.allureCommand = allureCommand;
         this.singleFile = singleFile;
+        this.options = options;
     }
 
-    public void generate(Path resultsDir, Path reportDir) throws IOException, InterruptedException {
+    /** @param reportName passed as {@code --name}; not passed when null or blank */
+    public void generate(Path resultsDir, Path reportDir, String reportName) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>();
         if (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) {
             // allure on Windows is a .bat file, which ProcessBuilder can only launch through cmd.
@@ -39,19 +45,35 @@ public final class AllureRunner {
             executableChecked = true;
         }
         cmd.add(allureCommand);
-        cmd.add("generate");
-        cmd.add(resultsDir.toAbsolutePath().toString());
-        cmd.add("-o");
-        cmd.add(reportDir.toAbsolutePath().toString());
-        cmd.add("--clean");
-        if (singleFile) {
-            cmd.add("--single-file");
-        }
+        cmd.addAll(generateArgs(resultsDir, reportDir, reportName));
 
         Process process = new ProcessBuilder(cmd).inheritIO().start();
         int exit = process.waitFor();
         if (exit != 0) {
             throw new IOException("allure generate exited with code " + exit + " for " + resultsDir);
+        }
+    }
+
+    /** Everything after the allure binary on the command line. */
+    List<String> generateArgs(Path resultsDir, Path reportDir, String reportName) {
+        List<String> args = new ArrayList<>();
+        args.add("generate");
+        args.add(resultsDir.toAbsolutePath().toString());
+        args.add("-o");
+        args.add(reportDir.toAbsolutePath().toString());
+        args.add("--clean");
+        if (singleFile) {
+            args.add("--single-file");
+        }
+        addOption(args, "--name", reportName);
+        options.forEach((flag, value) -> addOption(args, flag, value));
+        return args;
+    }
+
+    private static void addOption(List<String> args, String flag, String value) {
+        if (value != null && !value.isBlank()) {
+            args.add(flag);
+            args.add(value);
         }
     }
 

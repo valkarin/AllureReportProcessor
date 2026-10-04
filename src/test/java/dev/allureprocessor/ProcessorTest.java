@@ -268,6 +268,24 @@ class ProcessorTest {
     }
 
     @Test
+    void passesReportOptionsToAllureOnlyWhenSet() {
+        Main.Options options = Main.Options.parse(new String[] {
+                "--results", "in", "--out", "out", "--name", "Nightly ({bucket})", "--lang", "de",
+                "--config", "conf/allure.yml", "--configDirectory", "", "--profile", "  "});
+        AllureRunner runner = new AllureRunner("allure", true, options.allureOptions());
+
+        List<String> args = runner.generateArgs(Path.of("res"), Path.of("rep"), options.reportNameFor("not-passed"));
+        assertEquals(List.of("--single-file", "--name", "Nightly (not-passed)", "--lang", "de",
+                "--config", "conf/allure.yml"), args.subList(5, args.size()));
+
+        Main.Options none = Main.Options.parse(new String[] {"--results", "in", "--out", "out"});
+        List<String> plain = new AllureRunner("allure", false, none.allureOptions())
+                .generateArgs(Path.of("res"), Path.of("rep"), none.reportNameFor("passed"));
+        assertEquals(List.of("generate", Path.of("res").toAbsolutePath().toString(), "-o",
+                Path.of("rep").toAbsolutePath().toString(), "--clean"), plain);
+    }
+
+    @Test
     void makesNonExecutableAllureBinaryExecutable() throws IOException {
         assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
         Path bin = Files.createDirectories(tmp.resolve("bin"));

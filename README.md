@@ -35,6 +35,13 @@ Options:
 | `--no-split` | Write one combined results folder and report instead of passed / not-passed. Modifiers still run, and `ctx.bucket()` still tells them whether each result passed |
 | `--no-single-file` | Generate a normal multi-file report instead of one `index.html` |
 | `--skip-generate` | Only write the split results folders, don't call Allure |
+| `--name <text>` | Report title (alias `--report-name`). `{bucket}` is replaced by `passed`, `not-passed` or `all`, e.g. `--name "Nightly ({bucket})"` |
+| `--lang <code>` | Report language, e.g. `en`, `de` (alias `--report-language`) |
+| `--config <file>` | Allure config file listing the plugins to load; overrides the two below |
+| `--configDirectory <dir>` | Directory holding the Allure config, default `ALLURE_HOME/config` |
+| `--profile <name>` | Use `allure-<name>.yml` from the config directory instead of `allure.yml` |
+
+The last five are handed to `allure generate` unchanged and are left out when not given or empty. `--name` and `--lang` need a recent Allure 2 (checked against 2.38); older versions reject them as unknown options.
 
 Output:
 

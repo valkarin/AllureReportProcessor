@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -14,6 +15,7 @@ import java.util.TreeMap;
  * <pre>
  * java -jar allure-results-processor.jar --results target/allure-results --out target/allure-split
  *      [--allure path/to/allure] [--no-split] [--no-single-file] [--skip-generate]
+ *      [--name text] [--lang code] [--config file] [--configDirectory dir] [--profile name]
  * </pre>
  * Output layout:
  * <pre>
@@ -48,7 +50,7 @@ public final class Main {
 
         Map<Bucket, BucketContent> buckets = Splitter.split(folder);
         BucketWriter writer = new BucketWriter(mapper);
-        AllureRunner runner = new AllureRunner(options.allure, options.singleFile);
+        AllureRunner runner = new AllureRunner(options.allure, options.singleFile, options.allureOptions());
         Map<String, byte[]> allNewFiles = new TreeMap<>();
 
         for (Map.Entry<Bucket, BucketContent> e : buckets.entrySet()) {
@@ -91,7 +93,7 @@ public final class Main {
                 content.attachmentSources().size(), resultsDir);
 
         if (!options.skipGenerate) {
-            runner.generate(resultsDir, reportDir);
+            runner.generate(resultsDir, reportDir, options.reportNameFor(folderName));
         }
     }
 
@@ -102,6 +104,26 @@ public final class Main {
         boolean split = true;
         boolean singleFile = true;
         boolean skipGenerate = false;
+        String reportName;
+        String reportLanguage;
+        String config;
+        String configDirectory;
+        String profile;
+
+        /** The report name for one output folder: {@code {bucket}} is replaced by passed, not-passed or all. */
+        String reportNameFor(String folderName) {
+            return reportName == null ? null : reportName.replace("{bucket}", folderName);
+        }
+
+        /** Options handed to allure generate as they are; null or blank ones are left out by the runner. */
+        Map<String, String> allureOptions() {
+            Map<String, String> o = new LinkedHashMap<>();
+            o.put("--lang", reportLanguage);
+            o.put("--config", config);
+            o.put("--configDirectory", configDirectory);
+            o.put("--profile", profile);
+            return o;
+        }
 
         static Options parse(String[] args) {
             Options o = new Options();
@@ -113,6 +135,11 @@ public final class Main {
                     case "--no-split" -> o.split = false;
                     case "--no-single-file" -> o.singleFile = false;
                     case "--skip-generate" -> o.skipGenerate = true;
+                    case "--name", "--report-name" -> o.reportName = value(args, ++i, args[i - 1]);
+                    case "--lang", "--report-language" -> o.reportLanguage = value(args, ++i, args[i - 1]);
+                    case "--config" -> o.config = value(args, ++i, "--config");
+                    case "--configDirectory" -> o.configDirectory = value(args, ++i, "--configDirectory");
+                    case "--profile" -> o.profile = value(args, ++i, "--profile");
                     default -> usage("Unknown argument: " + args[i]);
                 }
             }
@@ -132,7 +159,8 @@ public final class Main {
         private static void usage(String error) {
             System.err.println(error);
             System.err.println("Usage: java -jar allure-results-processor.jar --results <dir> --out <dir> "
-                    + "[--allure <path>] [--no-split] [--no-single-file] [--skip-generate]");
+                    + "[--allure <path>] [--no-split] [--no-single-file] [--skip-generate] "
+                    + "[--name <text>] [--lang <code>] [--config <file>] [--configDirectory <dir>] [--profile <name>]");
             System.exit(2);
         }
     }
