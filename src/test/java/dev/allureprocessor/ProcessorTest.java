@@ -145,6 +145,41 @@ class ProcessorTest {
     }
 
     @Test
+    void noSplitWritesOneFolderAndModifiersStillSeeEachResultsBucket() throws Exception {
+        Path out = tmp.resolve("unsplit");
+        Main.Options options = Main.Options.parse(new String[] {
+                "--results", results.toString(), "--out", out.toString(), "--no-split", "--skip-generate"});
+
+        ResultModifier triage = (result, ctx) -> {
+            if (ctx.bucket() == Bucket.NOT_PASSED) {
+                AllureJson.addLabel(result, "tag", "needs-triage");
+                AllureJson.addAttachment(result, "Triage", "text/plain", ctx.addAttachmentFile("triage notes", "txt"));
+            }
+        };
+        Main.run(options, List.of(triage));
+
+        assertEquals(Set.of("all"), list(out.resolve("results")));
+        Path all = out.resolve("results/all");
+        Set<String> files = list(all);
+        assertTrue(files.containsAll(Set.of("r1-result.json", "r2-result.json", "r3-result.json", "r3b-result.json",
+                "r4-result.json", "r5-result.json", "r5b-result.json", "r6-result.json",
+                "c1-container.json", "c2-container.json", "c3-container.json",
+                "a1-attachment.png", "a2-attachment.txt", "a3-attachment.txt", "categories.json")));
+        assertFalse(files.contains("unused-attachment.txt"));
+
+        // shared container is whole again, not trimmed to one bucket
+        assertEquals(List.of("r1", "r2"), children(mapper.readTree(all.resolve("c2-container.json").toFile())));
+
+        ObjectNode r2 = (ObjectNode) mapper.readTree(all.resolve("r2-result.json").toFile());
+        assertEquals("needs-triage", AllureJson.label(r2, "tag"));
+        String triageSource = r2.path("attachments").get(1).path("source").asText();
+        assertEquals("triage notes", Files.readString(all.resolve(triageSource)));
+
+        ObjectNode r1 = (ObjectNode) mapper.readTree(all.resolve("r1-result.json").toFile());
+        assertEquals(null, AllureJson.label(r1, "tag"));
+    }
+
+    @Test
     void outputIsDeterministic() throws Exception {
         Main.Options options = new Main.Options();
         options.results = results;

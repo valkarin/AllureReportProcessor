@@ -7,20 +7,25 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Usage:
  * <pre>
  * java -jar allure-results-processor.jar --results target/allure-results --out target/allure-split
- *      [--allure path/to/allure] [--no-single-file] [--skip-generate]
+ *      [--allure path/to/allure] [--no-split] [--no-single-file] [--skip-generate]
  * </pre>
  * Output layout:
  * <pre>
  * out/results/passed       out/report/passed
  * out/results/not-passed   out/report/not-passed   (failed, broken, skipped, unknown, ...)
  * </pre>
+ * With {@code --no-split}, everything goes to {@code out/results/all} and {@code out/report/all} instead.
  */
 public final class Main {
+
+    /** Output folder name used with {@code --no-split}. */
+    static final String ALL_FOLDER = "all";
 
     public static void main(String[] args) throws Exception {
         Options options = Options.parse(args);
@@ -44,6 +49,7 @@ public final class Main {
         Map<Bucket, BucketContent> buckets = Splitter.split(folder);
         BucketWriter writer = new BucketWriter(mapper);
         AllureRunner runner = new AllureRunner(options.allure, options.singleFile);
+        Map<String, byte[]> allNewFiles = new TreeMap<>();
 
         for (Map.Entry<Bucket, BucketContent> e : buckets.entrySet()) {
             Bucket bucket = e.getKey();
@@ -58,26 +64,42 @@ public final class Main {
             // Pick up attachments that modifiers added to results.
             content.results().values().forEach(r -> Splitter.collectAttachmentSources(r, content.attachmentSources()));
 
-            Path resultsDir = options.out.resolve("results").resolve(bucket.folderName());
-            Path reportDir = options.out.resolve("report").resolve(bucket.folderName());
-            writer.write(content, context.newFiles(), folder, resultsDir, reportDir)
-                    .forEach(w -> System.err.println("WARN [" + bucket.folderName() + "] " + w));
-
-            System.out.printf("%-10s %4d results, %3d containers, %3d attachments -> %s%n",
-                    bucket.folderName(), content.results().size(), content.containers().size(),
-                    content.attachmentSources().size(), resultsDir);
-
-            if (!options.skipGenerate) {
-                runner.generate(resultsDir, reportDir);
+            if (options.split) {
+                writeAndGenerate(options, writer, runner, folder, bucket.folderName(), content, context.newFiles());
+            } else {
+                allNewFiles.putAll(context.newFiles());
             }
         }
+        if (!options.split) {
+            // Modifiers still saw each result's own bucket above; only the output is combined.
+            writeAndGenerate(options, writer, runner, folder, ALL_FOLDER,
+                    Splitter.merge(buckets.values(), folder), allNewFiles);
+        }
         return 0;
+    }
+
+    private static void writeAndGenerate(Options options, BucketWriter writer, AllureRunner runner, ResultsFolder folder,
+                                         String folderName, BucketContent content, Map<String, byte[]> newFiles)
+            throws Exception {
+        Path resultsDir = options.out.resolve("results").resolve(folderName);
+        Path reportDir = options.out.resolve("report").resolve(folderName);
+        writer.write(content, newFiles, folder, resultsDir, reportDir)
+                .forEach(w -> System.err.println("WARN [" + folderName + "] " + w));
+
+        System.out.printf("%-10s %4d results, %3d containers, %3d attachments -> %s%n",
+                folderName, content.results().size(), content.containers().size(),
+                content.attachmentSources().size(), resultsDir);
+
+        if (!options.skipGenerate) {
+            runner.generate(resultsDir, reportDir);
+        }
     }
 
     static final class Options {
         Path results;
         Path out;
         String allure = "allure";
+        boolean split = true;
         boolean singleFile = true;
         boolean skipGenerate = false;
 
@@ -88,6 +110,7 @@ public final class Main {
                     case "--results" -> o.results = Path.of(value(args, ++i, "--results"));
                     case "--out" -> o.out = Path.of(value(args, ++i, "--out"));
                     case "--allure" -> o.allure = value(args, ++i, "--allure");
+                    case "--no-split" -> o.split = false;
                     case "--no-single-file" -> o.singleFile = false;
                     case "--skip-generate" -> o.skipGenerate = true;
                     default -> usage("Unknown argument: " + args[i]);
@@ -109,7 +132,7 @@ public final class Main {
         private static void usage(String error) {
             System.err.println(error);
             System.err.println("Usage: java -jar allure-results-processor.jar --results <dir> --out <dir> "
-                    + "[--allure <path>] [--no-single-file] [--skip-generate]");
+                    + "[--allure <path>] [--no-split] [--no-single-file] [--skip-generate]");
             System.exit(2);
         }
     }

@@ -32,6 +32,7 @@ Options:
 | `--results <dir>` | Source allure-results folder (required) |
 | `--out <dir>` | Output root (required); it is rebuilt on every run |
 | `--allure <path>` | Allure binary, default `allure` (on Windows, e.g. `C:\tools\allure\bin\allure.bat`) |
+| `--no-split` | Write one combined results folder and report instead of passed / not-passed. Modifiers still run, and `ctx.bucket()` still tells them whether each result passed |
 | `--no-single-file` | Generate a normal multi-file report instead of one `index.html` |
 | `--skip-generate` | Only write the split results folders, don't call Allure |
 
@@ -40,6 +41,12 @@ Output:
 ```
 <out>/results/passed       <out>/report/passed/index.html
 <out>/results/not-passed   <out>/report/not-passed/index.html
+```
+
+With `--no-split`:
+
+```
+<out>/results/all          <out>/report/all/index.html
 ```
 
 ## How the split works

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
@@ -61,6 +62,20 @@ public final class Splitter {
             out.put(b, new BucketContent(results, containers, attachments));
         }
         return out;
+    }
+
+    /**
+     * Combines buckets back into one, for a single unsplit report. Results keep whatever
+     * modifiers did to them; containers are rebuilt from the source so shared ones are whole again.
+     */
+    public static BucketContent merge(Collection<BucketContent> buckets, ResultsFolder folder) {
+        Map<String, ObjectNode> results = new TreeMap<>();
+        Set<String> attachments = new TreeSet<>();
+        for (BucketContent b : buckets) {
+            results.putAll(b.results());
+            attachments.addAll(b.attachmentSources());
+        }
+        return new BucketContent(results, containersFor(results.keySet(), folder.containers()), attachments);
     }
 
     private static Map<String, List<Map.Entry<String, ObjectNode>>> groupByHistoryId(Map<String, ObjectNode> results) {
