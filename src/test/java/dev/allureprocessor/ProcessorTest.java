@@ -21,6 +21,7 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -106,10 +107,7 @@ class ProcessorTest {
     @Test
     void endToEndWritesFoldersAppliesModifiersAndLeavesSourceUntouched() throws Exception {
         Path out = tmp.resolve("split");
-        Main.Options options = new Main.Options();
-        options.results = results;
-        options.out = out;
-        options.skipGenerate = true;
+        AllureProcessor.Builder processor = AllureProcessor.builder().results(results).out(out).skipGenerate(true);
 
         ResultModifier addReport = (result, ctx) -> {
             if (ctx.bucket() == Bucket.NOT_PASSED) {
@@ -123,7 +121,7 @@ class ProcessorTest {
                 AllureJson.addLabel(result, "tag", "needs-triage");
             }
         };
-        Main.run(options, List.of(addTag, addReport));
+        processor.addModifier(addTag).addModifier(addReport).run();
 
         Path failed = out.resolve("results/not-passed");
         Set<String> files = list(failed);
@@ -151,7 +149,7 @@ class ProcessorTest {
     @Test
     void noSplitWritesOneFolderAndModifiersStillSeeEachResultsBucket() throws Exception {
         Path out = tmp.resolve("unsplit");
-        Main.Options options = Main.Options.parse(new String[] {
+        AllureProcessor.Builder processor = Main.parse(new String[] {
                 "--results", results.toString(), "--out", out.toString(), "--no-split", "--skip-generate"});
 
         ResultModifier triage = (result, ctx) -> {
@@ -160,7 +158,7 @@ class ProcessorTest {
                 AllureJson.addAttachment(result, "Triage", "text/plain", ctx.addAttachmentFile("triage notes", "txt"));
             }
         };
-        Main.run(options, List.of(triage));
+        processor.addModifier(triage).run();
 
         assertEquals(Set.of("all"), list(out.resolve("results")));
         Path all = out.resolve("results/all");
@@ -185,14 +183,9 @@ class ProcessorTest {
 
     @Test
     void outputIsDeterministic() throws Exception {
-        Main.Options options = new Main.Options();
-        options.results = results;
-        options.skipGenerate = true;
-
-        options.out = tmp.resolve("run1");
-        Main.run(options, List.of());
-        options.out = tmp.resolve("run2");
-        Main.run(options, List.of());
+        AllureProcessor.Builder processor = AllureProcessor.builder().results(results).skipGenerate(true);
+        processor.out(tmp.resolve("run1")).run();
+        processor.out(tmp.resolve("run2")).run();
 
         for (String bucket : List.of("passed", "not-passed")) {
             Path a = tmp.resolve("run1/results").resolve(bucket);
@@ -269,7 +262,7 @@ class ProcessorTest {
 
     @Test
     void passesReportOptionsToAllureOnlyWhenSet() {
-        Main.Options options = Main.Options.parse(new String[] {
+        AllureProcessor.Builder options = Main.parse(new String[] {
                 "--results", "in", "--out", "out", "--name", "Nightly ({bucket})", "--lang", "de",
                 "--config", "conf/allure.yml", "--configDirectory", "", "--profile", "  "});
         AllureRunner runner = new AllureRunner("allure", true, options.allureOptions());
@@ -278,7 +271,7 @@ class ProcessorTest {
         assertEquals(List.of("--single-file", "--name", "Nightly (not-passed)", "--lang", "de",
                 "--config", "conf/allure.yml"), args.subList(5, args.size()));
 
-        Main.Options none = Main.Options.parse(new String[] {"--results", "in", "--out", "out"});
+        AllureProcessor.Builder none = Main.parse(new String[] {"--results", "in", "--out", "out"});
         List<String> plain = new AllureRunner("allure", false, none.allureOptions())
                 .generateArgs(Path.of("res"), Path.of("rep"), none.reportNameFor("passed"));
         assertEquals(List.of("generate", Path.of("res").toAbsolutePath().toString(), "-o",
@@ -287,14 +280,14 @@ class ProcessorTest {
 
     @Test
     void reportFileNameDefaultsToIndexAndCanBeOverridden() throws IOException {
-        Main.Options defaults = Main.Options.parse(new String[] {"--results", "in", "--out", "out"});
+        AllureProcessor.Builder defaults = Main.parse(new String[] {"--results", "in", "--out", "out"});
         assertEquals("index.html", defaults.reportFileFor("not-passed"));
 
-        Main.Options named = Main.Options.parse(new String[] {
+        AllureProcessor.Builder named = Main.parse(new String[] {
                 "--results", "in", "--out", "out", "--report-file", "nightly-{bucket}.html"});
         assertEquals("nightly-passed.html", named.reportFileFor("passed"));
 
-        Main.Options sameName = Main.Options.parse(new String[] {
+        AllureProcessor.Builder sameName = Main.parse(new String[] {
                 "--results", "in", "--out", "out", "--report-file", "nightly.html"});
         assertEquals("nightly.html", sameName.reportFileFor("passed"));
         assertEquals("nightly.html", sameName.reportFileFor("not-passed"));
@@ -305,6 +298,79 @@ class ProcessorTest {
         AllureRunner.moveReport(generated, target);
         assertEquals("<html>new</html>", Files.readString(target));
         assertFalse(Files.exists(generated.resolve("index.html")));
+    }
+
+    @Test
+    void builtInModifiersRunAfterAddedOnesAndCanBeTurnedOff() throws Exception {
+        // adds a link that duplicates one already on r1; only the built-in dedupe removes it again
+        ResultModifier duplicateLink = (result, ctx) -> {
+            AllureJson.addLink(result, "Runbook", "https://wiki/runbook", "link");
+            AllureJson.addLink(result, "Runbook", "https://wiki/runbook", "link");
+        };
+
+        AllureProcessor.builder().results(results).out(tmp.resolve("with")).skipGenerate(true)
+                .addModifier(duplicateLink).run();
+        assertEquals(1, mapper.readTree(tmp.resolve("with/results/passed/r1-result.json").toFile()).path("links").size());
+
+        AllureProcessor.builder().results(results).out(tmp.resolve("without")).skipGenerate(true)
+                .addModifier(duplicateLink).withoutDefaultModifiers().run();
+        assertEquals(2, mapper.readTree(tmp.resolve("without/results/passed/r1-result.json").toFile()).path("links").size());
+    }
+
+    @Test
+    void modifiersRunByPhaseThenInTheOrderAdded() throws Exception {
+        List<String> order = new java.util.ArrayList<>();
+        ResultModifier late = recording(order, "late", ResultModifier.Phase.LATE);
+        ResultModifier early = recording(order, "early", ResultModifier.Phase.EARLY);
+        ResultModifier first = (result, ctx) -> order.add("first");
+        ResultModifier second = (result, ctx) -> order.add("second");
+
+        // only r1 lands in the passed bucket of this folder, so each modifier is recorded once there
+        Path single = Files.createDirectories(tmp.resolve("single"));
+        Files.copy(results.resolve("r1-result.json"), single.resolve("r1-result.json"));
+        AllureProcessor.builder().results(single).out(tmp.resolve("phases")).skipGenerate(true)
+                .addModifier(late).addModifier(first).addModifier(early).addModifier(second).run();
+
+        assertEquals(List.of("early", "first", "second", "late"), order);
+
+        // dedupe is LATE, so it still runs after a modifier that was added behind it
+        ObjectNode r = (ObjectNode) mapper.readTree("{\"labels\":[{\"name\":\"jira\",\"value\":\"PAY-7\"}],"
+                + "\"links\":[{\"name\":\"PAY-7\",\"url\":\"https://j/PAY-7\",\"type\":\"issue\"}]}");
+        Path dupes = Files.createDirectories(tmp.resolve("dupes"));
+        r.put("uuid", "d1").put("status", "passed");
+        mapper.writeValue(dupes.resolve("d1-result.json").toFile(), r);
+        AllureProcessor.builder().results(dupes).out(tmp.resolve("dupes-out")).skipGenerate(true)
+                .withoutDefaultModifiers()
+                .addModifier(new dev.allureprocessor.modifiers.DedupeLinksModifier())
+                .addModifier(new dev.allureprocessor.modifiers.LabelToLinkModifier("jira", "https://j/{value}", "issue"))
+                .run();
+        assertEquals(1, mapper.readTree(tmp.resolve("dupes-out/results/passed/d1-result.json").toFile())
+                .path("links").size());
+    }
+
+    private static ResultModifier recording(List<String> order, String name, ResultModifier.Phase phase) {
+        return new ResultModifier() {
+            @Override
+            public void modify(ObjectNode result, ModifierContext context) {
+                order.add(name);
+            }
+
+            @Override
+            public Phase phase() {
+                return phase;
+            }
+        };
+    }
+
+    @Test
+    void rejectsMissingOrContradictorySettings() {
+        assertThrows(IllegalArgumentException.class, () -> AllureProcessor.builder().results(results).run());
+        assertThrows(IllegalArgumentException.class, () -> Main.parse(new String[] {
+                "--results", "in", "--out", "out", "--no-single-file", "--report-file", "x.html"}));
+        assertThrows(IllegalArgumentException.class, () -> Main.parse(new String[] {
+                "--results", "in", "--out", "out", "--report-file", "sub/x.html"}));
+        assertThrows(IllegalArgumentException.class, () -> Main.parse(new String[] {"--results", "in", "--out"}));
+        assertThrows(IllegalArgumentException.class, () -> Main.parse(new String[] {"--bogus"}));
     }
 
     @Test

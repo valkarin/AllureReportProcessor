@@ -7,9 +7,14 @@ import dev.allureprocessor.ResultModifier;
 
 /**
  * Removes links with the same name and url as an earlier link, keeping the first.
- * Register it last so it also catches duplicates created by other modifiers.
+ * Runs in the {@link Phase#LATE} phase so it also catches duplicates created by other modifiers.
  */
 public final class DedupeLinksModifier implements ResultModifier {
+
+    @Override
+    public Phase phase() {
+        return Phase.LATE;
+    }
 
     @Override
     public void modify(ObjectNode result, ModifierContext context) {

@@ -20,7 +20,7 @@ The original results folder is never modified.
 
 ```bash
 mvn package
-java -jar target/allure-results-processor-0.1.0-SNAPSHOT.jar \
+java -jar target/allure-results-processor-0.1.0-SNAPSHOT-all.jar \
   --results target/allure-results \
   --out target/allure-split
 ```
@@ -59,6 +59,41 @@ With `--no-split`:
 
 With `--no-single-file`, each report is a folder instead: `<out>/report/<bucket>/index.html`.
 
+## Use from Java (e.g. a JUnit suite)
+
+The build also produces a plain `allure-results-processor-0.1.0-SNAPSHOT.jar` (without bundled dependencies) to use as a Maven dependency; `mvn install` puts it in your local repository:
+
+```xml
+<dependency>
+  <groupId>dev.allureprocessor</groupId>
+  <artifactId>allure-results-processor</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <scope>test</scope>
+</dependency>
+```
+
+`AllureProcessor.builder()` has a method for every command line option. For example, after a Cucumber suite on the JUnit Platform (`@AfterSuite` needs `junit-platform-suite` 1.11+):
+
+```java
+@Suite
+@IncludeEngines("cucumber")
+@SelectClasspathResource("features")
+public class RunCucumberTest {
+
+    @AfterSuite
+    static void processAllureResults() throws Exception {
+        AllureProcessor.builder()
+                .results(Path.of("target/allure-results"))
+                .out(Path.of("target/allure-split"))
+                .reportName("Nightly ({bucket})")
+                .addModifier(new LabelToLinkModifier("jira", "https://jira.example.com/browse/{value}", "issue"))
+                .run();
+    }
+}
+```
+
+`run()` throws if Allure fails, which fails the suite; catch the exception there if a reporting problem should not break the build. The Allure CLI must be installed where the tests run.
+
 ## How the split works
 
 - **Retries.** Attempts of the same test share a `historyId`. The latest attempt (highest `stop`) decides the bucket, and all attempts go to that bucket together, so Allure still shows them on the Retries tab. A scenario that failed and then passed on retry appears only in the passed report.
@@ -70,10 +105,10 @@ With `--no-single-file`, each report is a folder instead: `<out>/report/<bucket>
 
 ## Adding your own data
 
-Implement `ResultModifier` and register it in `Main.main`:
+Implement `ResultModifier` and add it with `addModifier`, on the builder or (for the command line) in `Main.main`:
 
 ```java
-modifiers.add((result, ctx) -> {
+processor.addModifier((result, ctx) -> {
     if (ctx.bucket() == Bucket.NOT_PASSED) {
         AllureJson.addLabel(result, "tag", "needs-triage");
         AllureJson.addLink(result, "Runbook", "https://wiki/runbook", "link");
@@ -96,9 +131,16 @@ Ready-made modifiers in `dev.allureprocessor.modifiers`:
 - `LabelToLinkModifier`: if a label is present, removes it and adds a link per value, e.g.
   `new LabelToLinkModifier("jira", "https://jira.example.com/browse/{value}", "issue")`
   turns `jira=PAY-123` into an issue link named PAY-123.
-- `DedupeLinksModifier`: removes links with the same name and url as an earlier one, keeping the first (its type wins). Registered by default in `Main`, as the last modifier, so it also catches duplicates created by earlier modifiers. Also available as `AllureJson.dedupeLinks(result)`.
+- `DedupeLinksModifier`: removes links with the same name and url as an earlier one, keeping the first (its type wins). Built in: it always runs, in the `LATE` phase, so it also catches duplicates created by other modifiers. Also available as `AllureJson.dedupeLinks(result)`.
 
-Modifiers run in the order they are registered, so a later modifier sees the changes of an earlier one.
+**Order.** Each modifier has a phase: `EARLY`, `NORMAL` (the default) or `LATE`. Phases run in that order, and a later modifier sees the changes of an earlier one. Within a phase, modifiers run in the order they are added, with yours before the built-in ones (`AllureProcessor.defaultModifiers()`; `withoutDefaultModifiers()` on the builder turns those off). A modifier class picks its phase by overriding `phase()`:
+
+```java
+@Override
+public Phase phase() {
+    return Phase.LATE;   // clean-up that must see what the other modifiers did
+}
+```
 
 ## Tests
 

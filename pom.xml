@@ -44,7 +44,7 @@
         <version>3.5.2</version>
       </plugin>
       <plugin>
-        <!-- Builds target/allure-results-processor-<version>.jar with all dependencies, runnable with java -jar -->
+        <!-- Builds target/allure-results-processor-<version>-all.jar with all dependencies, runnable with java -jar -->
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
         <version>3.6.0</version>
@@ -54,6 +54,9 @@
             <goals><goal>shade</goal></goals>
             <configuration>
               <createDependencyReducedPom>false</createDependencyReducedPom>
+              <!-- Keep the plain jar as the main artifact (for use as a dependency); the runnable one gets an -all suffix. -->
+              <shadedArtifactAttached>true</shadedArtifactAttached>
+              <shadedClassifierName>all</shadedClassifierName>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                   <mainClass>dev.allureprocessor.Main</mainClass>
