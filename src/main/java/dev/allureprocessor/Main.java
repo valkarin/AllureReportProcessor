@@ -16,18 +16,23 @@ import java.util.TreeMap;
  * java -jar allure-results-processor.jar --results target/allure-results --out target/allure-split
  *      [--allure path/to/allure] [--no-split] [--no-single-file] [--skip-generate]
  *      [--name text] [--lang code] [--config file] [--configDirectory dir] [--profile name]
+ *      [--report-file name]
  * </pre>
  * Output layout:
  * <pre>
- * out/results/passed       out/report/passed
- * out/results/not-passed   out/report/not-passed   (failed, broken, skipped, unknown, ...)
+ * out/results/passed       out/passed/index.html
+ * out/results/not-passed   out/not-passed/index.html   (failed, broken, skipped, unknown, ...)
  * </pre>
- * With {@code --no-split}, everything goes to {@code out/results/all} and {@code out/report/all} instead.
+ * With {@code --no-split}, everything goes to {@code out/results/all} and {@code out/all/index.html} instead.
+ * {@code --report-file} renames index.html.
+ * With {@code --no-single-file}, each report is a folder: {@code out/report/<bucket>}.
  */
 public final class Main {
 
     /** Output folder name used with {@code --no-split}. */
     static final String ALL_FOLDER = "all";
+
+    static final String DEFAULT_REPORT_FILE = "index.html";
 
     public static void main(String[] args) throws Exception {
         Options options = Options.parse(args);
@@ -84,7 +89,8 @@ public final class Main {
                                          String folderName, BucketContent content, Map<String, byte[]> newFiles)
             throws Exception {
         Path resultsDir = options.out.resolve("results").resolve(folderName);
-        Path reportDir = options.out.resolve("report").resolve(folderName);
+        // A single-file report is one HTML file in <out>/<bucket>; only a multi-file report needs a report folder.
+        Path reportDir = options.singleFile ? null : options.out.resolve("report").resolve(folderName);
         writer.write(content, newFiles, folder, resultsDir, reportDir)
                 .forEach(w -> System.err.println("WARN [" + folderName + "] " + w));
 
@@ -92,8 +98,14 @@ public final class Main {
                 folderName, content.results().size(), content.containers().size(),
                 content.attachmentSources().size(), resultsDir);
 
-        if (!options.skipGenerate) {
-            runner.generate(resultsDir, reportDir, options.reportNameFor(folderName));
+        if (options.skipGenerate) {
+            return;
+        }
+        String reportName = options.reportNameFor(folderName);
+        if (options.singleFile) {
+            runner.generateFile(resultsDir, options.out.resolve(folderName).resolve(options.reportFileFor(folderName)), reportName);
+        } else {
+            runner.generate(resultsDir, reportDir, reportName);
         }
     }
 
@@ -109,6 +121,13 @@ public final class Main {
         String config;
         String configDirectory;
         String profile;
+        String reportFile;
+
+        /** The single-file report's file name for one output folder; index.html unless --report-file is set. */
+        String reportFileFor(String folderName) {
+            String template = reportFile == null || reportFile.isBlank() ? DEFAULT_REPORT_FILE : reportFile;
+            return template.replace("{bucket}", folderName);
+        }
 
         /** The report name for one output folder: {@code {bucket}} is replaced by passed, not-passed or all. */
         String reportNameFor(String folderName) {
@@ -140,11 +159,20 @@ public final class Main {
                     case "--config" -> o.config = value(args, ++i, "--config");
                     case "--configDirectory" -> o.configDirectory = value(args, ++i, "--configDirectory");
                     case "--profile" -> o.profile = value(args, ++i, "--profile");
+                    case "--report-file" -> o.reportFile = value(args, ++i, "--report-file");
                     default -> usage("Unknown argument: " + args[i]);
                 }
             }
             if (o.results == null || o.out == null) {
                 usage("--results and --out are required");
+            }
+            if (o.reportFile != null && !o.reportFile.isBlank()) {
+                if (!o.singleFile) {
+                    usage("--report-file cannot be used with --no-single-file");
+                }
+                if (o.reportFile.contains("/") || o.reportFile.contains("\\")) {
+                    usage("--report-file must be a file name, not a path");
+                }
             }
             return o;
         }
@@ -160,7 +188,8 @@ public final class Main {
             System.err.println(error);
             System.err.println("Usage: java -jar allure-results-processor.jar --results <dir> --out <dir> "
                     + "[--allure <path>] [--no-split] [--no-single-file] [--skip-generate] "
-                    + "[--name <text>] [--lang <code>] [--config <file>] [--configDirectory <dir>] [--profile <name>]");
+                    + "[--name <text>] [--lang <code>] [--config <file>] [--configDirectory <dir>] [--profile <name>] "
+                    + "[--report-file <name>]");
             System.exit(2);
         }
     }

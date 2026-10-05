@@ -286,6 +286,28 @@ class ProcessorTest {
     }
 
     @Test
+    void reportFileNameDefaultsToIndexAndCanBeOverridden() throws IOException {
+        Main.Options defaults = Main.Options.parse(new String[] {"--results", "in", "--out", "out"});
+        assertEquals("index.html", defaults.reportFileFor("not-passed"));
+
+        Main.Options named = Main.Options.parse(new String[] {
+                "--results", "in", "--out", "out", "--report-file", "nightly-{bucket}.html"});
+        assertEquals("nightly-passed.html", named.reportFileFor("passed"));
+
+        Main.Options sameName = Main.Options.parse(new String[] {
+                "--results", "in", "--out", "out", "--report-file", "nightly.html"});
+        assertEquals("nightly.html", sameName.reportFileFor("passed"));
+        assertEquals("nightly.html", sameName.reportFileFor("not-passed"));
+
+        Path generated = Files.createDirectories(tmp.resolve("generated"));
+        Files.writeString(generated.resolve("index.html"), "<html>new</html>");
+        Path target = Files.writeString(tmp.resolve("nightly-passed.html"), "<html>old</html>");
+        AllureRunner.moveReport(generated, target);
+        assertEquals("<html>new</html>", Files.readString(target));
+        assertFalse(Files.exists(generated.resolve("index.html")));
+    }
+
+    @Test
     void makesNonExecutableAllureBinaryExecutable() throws IOException {
         assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
         Path bin = Files.createDirectories(tmp.resolve("bin"));

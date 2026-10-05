@@ -33,28 +33,31 @@ Options:
 | `--out <dir>` | Output root (required); it is rebuilt on every run |
 | `--allure <path>` | Allure binary, default `allure` (on Windows, e.g. `C:\tools\allure\bin\allure.bat`). On macOS / Linux, if the binary is missing its execute bit, it is added automatically |
 | `--no-split` | Write one combined results folder and report instead of passed / not-passed. Modifiers still run, and `ctx.bucket()` still tells them whether each result passed |
-| `--no-single-file` | Generate a normal multi-file report instead of one `index.html` |
+| `--no-single-file` | Generate a normal multi-file report folder (`<out>/report/<bucket>/`) instead of one HTML file |
 | `--skip-generate` | Only write the split results folders, don't call Allure |
 | `--name <text>` | Report title (alias `--report-name`). `{bucket}` is replaced by `passed`, `not-passed` or `all`, e.g. `--name "Nightly ({bucket})"` |
 | `--lang <code>` | Report language, e.g. `en`, `de` (alias `--report-language`) |
 | `--config <file>` | Allure config file listing the plugins to load; overrides the two below |
 | `--configDirectory <dir>` | Directory holding the Allure config, default `ALLURE_HOME/config` |
 | `--profile <name>` | Use `allure-<name>.yml` from the config directory instead of `allure.yml` |
+| `--report-file <name>` | File name of the single-file report, default `index.html`. `{bucket}` is replaced by `passed`, `not-passed` or `all`, e.g. `--report-file "nightly-{bucket}.html"`. Not allowed with `--no-single-file` |
 
-The last five are handed to `allure generate` unchanged and are left out when not given or empty. `--name` and `--lang` need a recent Allure 2 (checked against 2.38); older versions reject them as unknown options.
+`--name`, `--lang` and the three config options are handed to `allure generate` unchanged and are left out when not given or empty. `--name` and `--lang` need a recent Allure 2 (checked against 2.38); older versions reject them as unknown options.
 
 Output:
 
 ```
-<out>/results/passed       <out>/report/passed/index.html
-<out>/results/not-passed   <out>/report/not-passed/index.html
+<out>/results/passed       <out>/passed/index.html
+<out>/results/not-passed   <out>/not-passed/index.html
 ```
 
 With `--no-split`:
 
 ```
-<out>/results/all          <out>/report/all/index.html
+<out>/results/all          <out>/all/index.html
 ```
+
+With `--no-single-file`, each report is a folder instead: `<out>/report/<bucket>/index.html`.
 
 ## How the split works
 
@@ -62,7 +65,7 @@ With `--no-split`:
 - **Containers.** A container (Cucumber hooks live here) is included in every bucket that holds one of its children, resolved through nested containers. Shared containers are copied with `children` trimmed to that bucket.
 - **Attachments.** Only files referenced by the bucket's results, steps (at any depth), and fixtures are copied. Missing files are reported as warnings.
 - **Shared files.** `categories.json`, `environment.properties`, `environment.xml`, and `executor.json` are copied into every bucket.
-- **History.** If `<out>/report/<bucket>/history` exists from a previous run, it is copied into the bucket's results so trends continue. Note: `--single-file` reports are one `index.html` with no `history/` folder, so use `--no-single-file` if you want trend charts across runs.
+- **History.** If `<out>/report/<bucket>/history` exists from a previous run, it is copied into the bucket's results so trends continue. Note: single-file reports are one HTML file with no `history/` folder, so use `--no-single-file` if you want trend charts across runs.
 - **Determinism.** Files are read and written in sorted order; the same input always produces byte-identical output folders.
 
 ## Adding your own data

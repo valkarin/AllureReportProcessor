@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -52,6 +53,31 @@ public final class AllureRunner {
         if (exit != 0) {
             throw new IOException("allure generate exited with code " + exit + " for " + resultsDir);
         }
+    }
+
+    /**
+     * Generates a single-file report and leaves only that file, at {@code reportFile}.
+     * Allure always writes {@code index.html} into a folder, so it is generated into a
+     * temporary folder next to the target and moved out.
+     */
+    public void generateFile(Path resultsDir, Path reportFile, String reportName) throws IOException, InterruptedException {
+        Path parent = reportFile.toAbsolutePath().getParent();
+        Files.createDirectories(parent);
+        Path work = Files.createTempDirectory(parent, ".allure-");
+        try {
+            generate(resultsDir, work, reportName);
+            moveReport(work, reportFile);
+        } finally {
+            BucketWriter.deleteRecursively(work);
+        }
+    }
+
+    static void moveReport(Path generatedDir, Path reportFile) throws IOException {
+        Path index = generatedDir.resolve("index.html");
+        if (!Files.isRegularFile(index)) {
+            throw new IOException("allure generate did not produce " + index);
+        }
+        Files.move(index, reportFile, StandardCopyOption.REPLACE_EXISTING);
     }
 
     /** Everything after the allure binary on the command line. */
